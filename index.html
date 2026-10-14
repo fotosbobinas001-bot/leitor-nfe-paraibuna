@@ -131,7 +131,29 @@ el('focoCamera').addEventListener('click',async()=>{
   }catch(e){informarCamera('Foco controlado automaticamente pelo celular. Afaste um pouco a câmera da DANFE.');}
 });
 
-async function achou(texto){if(lendo)return;const chave=validarChave(texto);if(!chave)return; lendo=true;el('chave').textContent=chave;el('resultado').style.display='block';el('manual').value=chave;status('Chave da NF-e identificada. Toque em Copiar chave.');await parar();lendo=false;}
+const parametrosIntegracao = new URLSearchParams(location.search);
+const tokenIntegracao = parametrosIntegracao.get('token') || '';
+const modoIntegracao = parametrosIntegracao.get('integracao') === '1';
+function enviarParaAplicativo(chave) {
+  if (!modoIntegracao || !tokenIntegracao || !window.opener) return false;
+  try {
+    window.opener.postMessage({tipo:'PARAIBUNA_NFE_LIDA',token:tokenIntegracao,chave:chave}, '*');
+    return true;
+  } catch(e) { return false; }
+}
+async function achou(texto){
+  if(lendo)return;
+  const chave=validarChave(texto);
+  if(!chave)return;
+  lendo=true;
+  el('chave').textContent=chave;
+  el('resultado').style.display='block';
+  el('manual').value=chave;
+  await parar();
+  const enviado=enviarParaAplicativo(chave);
+  status(enviado ? 'Chave enviada ao aplicativo de cavacos. Se não aparecer no formulário, toque em Copiar chave.' : 'Chave identificada. Toque em Copiar chave.');
+  lendo=false;
+}
 el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:15,aspectRatio:window.matchMedia('(orientation: landscape)').matches?1.7778:1.3333},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'user'},{fps:15,aspectRatio:window.matchMedia('(orientation: landscape)').matches?1.7778:1.3333},achou,()=>{});}iniciado=true;configurarRecursos();el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
 el('parar').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
 el('fecharVisor').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
