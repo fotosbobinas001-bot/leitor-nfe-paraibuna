@@ -69,6 +69,7 @@ async function parar(){
     try{if(iniciado)await leitor.stop();}catch(e){}
     try{leitor.clear();}catch(e){}
   }
+  encerrarVideoNativo();
   leitor=null;iniciado=false;flashLigado=false;
   el('flashCamera').disabled=true;el('flashCamera').textContent='🔦 Ligar flash';
   el('focoCamera').disabled=true;el('zoomWrap').style.display='none';
@@ -173,11 +174,93 @@ async function achou(texto){
   if(enviado){setTimeout(()=>voltarAoAplicativo(),250);}
 
 }
-async function iniciarCamera(){if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:12,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},disableFlip:true},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'environment'},{fps:10,disableFlip:true},achou,()=>{});}iniciado=true;configurarRecursos();
-try{
- const st=leitor.getRunningTrackSettings();
- if(st?.width&&st?.height) informarCamera(el('infoCamera').textContent+' • Vídeo: '+st.width+'×'+st.height);
-}catch(e){}el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');el('erroCamera').style.display='none';el('reiniciarCamera').style.display='none';}catch(e){const aviso='Não foi possível abrir a câmera: '+(e?.message||e)+'. Toque em Tentar novamente e permita a câmera no Chrome.';status(aviso);await parar();el('visor').classList.add('ativo');el('erroCamera').textContent=aviso;el('erroCamera').style.display='block';el('reiniciarCamera').style.display='inline-block';}}
+
+let fluxoVideo=null, videoNativo=null, timerLeitura=null, detectorNativo=null;
+function suporteDetector(){return typeof window.BarcodeDetector==='function';}
+function encerrarVideoNativo(){
+  if(timerLeitura){clearTimeout(timerLeitura);timerLeitura=null;}
+  if(fluxoVideo){fluxoVideo.getTracks().forEach(t=>t.stop());fluxoVideo=null;}
+  if(videoNativo){videoNativo.remove();videoNativo=null;}
+  detectorNativo=null;
+}
+async function iniciarCamera(){
+  if(iniciado)return;
+  if(!window.isSecureContext){status('Abra pelo HTTPS do GitHub Pages.');return;}
+  el('iniciar').disabled=true;
+  el('visor').classList.add('ativo');
+  status('Abrindo câmera traseira em alta definição...');
+  el('erroCamera').style.display='none';
+  el('reiniciarCamera').style.display='none';
+  try{
+    if(suporteDetector()){
+      try{
+        detectorNativo=new BarcodeDetector({formats:['code_128','itf','code_39']});
+        fluxoVideo=await navigator.mediaDevices.getUserMedia({
+          audio:false,video:{facingMode:{ideal:'environment'},
+            width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}}
+        });
+        videoNativo=document.createElement('video');
+        videoNativo.autoplay=true;videoNativo.muted=true;videoNativo.playsInline=true;
+        videoNativo.style.cssText='width:100%;height:100%;object-fit:contain;display:block';
+        el('reader').replaceChildren(videoNativo);
+        videoNativo.srcObject=fluxoVideo;
+        await videoNativo.play();
+        const track=fluxoVideo.getVideoTracks()[0];
+        leitor={
+          getRunningTrackCapabilities:()=>track.getCapabilities?.()||{},
+          getRunningTrackSettings:()=>track.getSettings?.()||{},
+          applyVideoConstraints:constraints=>track.applyConstraints(constraints),
+          stop:async()=>encerrarVideoNativo(),
+          clear:()=>el('reader').replaceChildren()
+        };
+        iniciado=true;configurarRecursos();
+        const cfg=track.getSettings();
+        informarCamera(el('infoCamera').textContent+' • '+cfg.width+'×'+cfg.height+' • Leitura nativa');
+        el('parar').disabled=false;
+        status('Câmera ativa. Enquadre toda a largura do código de barras.');
+        const varrer=async()=>{
+          if(!iniciado||!videoNativo||lendo)return;
+          try{
+            if(videoNativo.readyState>=2){
+              const encontrados=await detectorNativo.detect(videoNativo);
+              for(const item of encontrados){
+                const chave=validarChave(item.rawValue);
+                if(chave){await achou(chave);return;}
+              }
+            }
+          }catch(e){}
+          if(iniciado)timerLeitura=setTimeout(varrer,110);
+        };
+        varrer();
+        return;
+      }catch(e){
+        encerrarVideoNativo();leitor=null;iniciado=false;
+      }
+    }
+    if(typeof Html5Qrcode==='undefined')throw Error('Biblioteca de leitura indisponível.');
+    el('reader').replaceChildren();
+    leitor=new Html5Qrcode('reader',{
+      formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],
+      verbose:false
+    });
+    await leitor.start({facingMode:'environment'},
+      {fps:12,disableFlip:true,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080}}},
+      achou,()=>{});
+    iniciado=true;configurarRecursos();
+    const cfg=leitor.getRunningTrackSettings();
+    informarCamera(el('infoCamera').textContent+' • '+cfg.width+'×'+cfg.height+' • Leitura alternativa');
+    el('parar').disabled=false;
+    status('Câmera ativa. Enquadre o código inteiro.');
+  }catch(e){
+    status('Falha ao abrir câmera: '+(e.message||e));
+    await parar();
+    el('visor').classList.add('ativo');
+    el('erroCamera').textContent='Não foi possível iniciar a câmera. Toque em Tentar novamente.';
+    el('erroCamera').style.display='block';
+    el('reiniciarCamera').style.display='inline-block';
+  }
+}
+
 el('iniciar').addEventListener('click',iniciarCamera);
 el('reiniciarCamera').addEventListener('click',iniciarCamera);
 if(modoIntegracao){
@@ -194,5 +277,5 @@ document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement
 
 el('validar').addEventListener('click',()=>{const v=validarChave(el('manual').value);if(!v){status('A chave deve conter exatamente 44 dígitos.');return;}achou(v);});
 el('copiar').addEventListener('click',async()=>{const v=el('chave').textContent;try{await navigator.clipboard.writeText(v);status('Chave copiada. Volte ao aplicativo de cavacos e cole no campo da NF-e.');}catch(e){status('Não foi possível copiar automaticamente. Selecione os 44 dígitos exibidos e copie manualmente.');}});
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&iniciado)parar();});
+// Não interromper a câmera em visibilitychange: fullscreen e rotação podem disparar este evento.
 </script></body></html>
