@@ -5,7 +5,7 @@
 </head><body><p>Serviço OCR Paraibuna. Abra pelo aplicativo.</p>
 <script>
 'use strict';
-const ORIGEM_APP=/^https:\/\/(?:script\.google\.com|script\.googleusercontent\.com)(?::443)?$/;
+const ORIGEM_APP=/^https:\/\/(?:script\.google\.com|(?:[a-z0-9-]+\.)?script\.googleusercontent\.com)(?::443)?$/;
 let worker=null,ocupado=false;
 async function obterWorker(){
   if(!worker){
@@ -60,15 +60,16 @@ async function reconhecer(src){
  return grupos[0]?.votos>=2?Math.round(grupos[0].valor*10)/10:null;
 }
 window.addEventListener('message',async ev=>{
-  if(!ORIGEM_APP.test(ev.origin))return;
+  if(!ORIGEM_APP.test(ev.origin) && ev.origin!=='null')return;
+  if(ev.data?.tipo==='PARAIBUNA_OCR_PING'){ev.source?.postMessage({tipo:'PARAIBUNA_OCR_PRONTO'},ev.origin==='null'?'*':ev.origin);return;}
   const d=ev.data;
   if(d?.tipo!=='PARAIBUNA_OCR_PEDIDO'||!Number.isSafeInteger(d.id)||typeof d.imagem!=='string'||!d.imagem.startsWith('data:image/'))return;
-  if(ocupado){ev.source?.postMessage({tipo:'PARAIBUNA_OCR_RESPOSTA',id:d.id,valor:null},ev.origin);return;}
+  if(ocupado){ev.source?.postMessage({tipo:'PARAIBUNA_OCR_RESPOSTA',id:d.id,valor:null},ev.origin==='null'?'*':ev.origin);return;}
   ocupado=true;
   let valor=null;
-  try{valor=await reconhecer(d.imagem);}catch(e){console.error('OCR',e);}
+  try{valor=await reconhecer(d.imagem);}catch(e){console.error('OCR',e);ev.source?.postMessage({tipo:'PARAIBUNA_OCR_ERRO',id:d.id,mensagem:String(e?.message||e)},ev.origin==='null'?'*':ev.origin);return;}
   finally{ocupado=false;}
-  ev.source?.postMessage({tipo:'PARAIBUNA_OCR_RESPOSTA',id:d.id,valor},ev.origin);
+  ev.source?.postMessage({tipo:'PARAIBUNA_OCR_RESPOSTA',id:d.id,valor},ev.origin==='null'?'*':ev.origin);
 });
 window.parent?.postMessage({tipo:'PARAIBUNA_OCR_PRONTO'},'*');
 </script></body></html>
