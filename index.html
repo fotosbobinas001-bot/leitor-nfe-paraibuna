@@ -1,17 +1,41 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Paraibuna | Leitor de chave NF-e</title>
 <style>
-:root{font-family:Arial,Helvetica,sans-serif;color:#173a55;background:#eef3f7}body{margin:0}header{background:#193e5d;color:white;padding:20px;text-align:center;font-weight:700;font-size:22px}main{max-width:620px;margin:24px auto;padding:18px}section{background:white;border-radius:16px;padding:20px;box-shadow:0 2px 14px #183a5518}h1{font-size:20px}button{border:0;border-radius:10px;background:#167a50;color:white;font-size:17px;font-weight:700;padding:15px;margin:7px 4px;cursor:pointer}button.secondary{background:#285477}button:disabled{opacity:.45}#reader{width:100%;max-width:530px;margin:auto}#status{padding:12px;border-radius:8px;background:#eaf2f7;white-space:pre-wrap}#chave{font-family:monospace;font-size:17px;word-break:break-all}small{color:#566}input{width:100%;box-sizing:border-box;font-size:18px;padding:12px;border:1px solid #aab;border-radius:8px}#resultado{display:none}a{color:#174c78}</style>
+:root{font-family:Arial,Helvetica,sans-serif;color:#173a55;background:#eef3f7}body{margin:0}header{background:#193e5d;color:white;padding:20px;text-align:center;font-weight:700;font-size:22px}main{max-width:620px;margin:24px auto;padding:18px}section{background:white;border-radius:16px;padding:20px;box-shadow:0 2px 14px #183a5518}h1{font-size:20px}button{border:0;border-radius:10px;background:#167a50;color:white;font-size:17px;font-weight:700;padding:15px;margin:7px 4px;cursor:pointer}button.secondary{background:#285477}button:disabled{opacity:.45}#reader{width:100%;max-width:530px;margin:auto}#status{padding:12px;border-radius:8px;background:#eaf2f7;white-space:pre-wrap}#chave{font-family:monospace;font-size:17px;word-break:break-all}small{color:#566}input{width:100%;box-sizing:border-box;font-size:18px;padding:12px;border:1px solid #aab;border-radius:8px}#resultado{display:none}a{color:#174c78}
+/* Visor expandido para leitura de DANFE, especialmente em paisagem */
+#visor{display:none;position:fixed;inset:0;z-index:9999;background:#07131d;color:white;overflow:hidden}
+#visor.ativo{display:flex;flex-direction:column}
+#barraVisor{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 12px;background:#112f45;flex-shrink:0}
+#barraVisor strong{font-size:15px}
+#barraVisor button{font-size:14px;padding:10px 12px;margin:0}
+#reader{width:100%;max-width:none!important;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+#reader video{width:100%!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important}
+#reader>div{max-width:100%!important}
+#dicaVisor{padding:8px 12px;background:#112f45;text-align:center;font-size:14px;flex-shrink:0}
+#status{overflow-wrap:anywhere}
+@media(orientation:landscape){
+ #barraVisor{padding:3px 12px}
+ #barraVisor button{padding:7px 12px}
+ #dicaVisor{padding:4px 12px;font-size:12px}
+}
+</style>
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 </head>
 <body><header>PARAIBUNA EMBALAGENS</header><main><section>
 <h1>Leitor de código de barras da NF-e</h1>
 <p>Aponte a câmera para o código de barras da DANFE. A leitura ocorre ao vivo, sem tirar foto.</p>
 <button id="iniciar">Abrir câmera</button><button id="parar" class="secondary" disabled>Parar câmera</button>
-<div id="reader"></div><p id="status" role="status">Toque em Abrir câmera para iniciar.</p>
+<div id="visor">
+  <div id="barraVisor"><strong>Leitor NF-e • visor ampliado</strong><div>
+    <button id="telaCheia" class="secondary" type="button">⛶ Tela cheia</button>
+    <button id="fecharVisor" type="button">Fechar</button>
+  </div></div>
+  <div id="reader"></div>
+  <div id="dicaVisor">Gire o celular na horizontal e aproxime o código de barras até ocupar a largura da imagem.</div>
+</div><p id="status" role="status">Toque em Abrir câmera para iniciar.</p>
 <div id="resultado"><strong>Chave identificada (44 dígitos):</strong><p id="chave"></p><button id="copiar">Copiar chave</button></div>
 <p><label for="manual">Ou digite/cole a chave:</label><input id="manual" inputmode="numeric" maxlength="44" placeholder="44 dígitos"></p><button id="validar" class="secondary">Validar chave digitada</button>
 <p><small>A leitura é realizada no próprio navegador. Este leitor não envia imagens nem chaves para o GitHub. Para inserir a chave no aplicativo de cavacos, use “Copiar chave” e cole no campo da NF-e.</small></p>
@@ -22,10 +46,27 @@ let leitor=null, iniciado=false, lendo=false;
 const el=id=>document.getElementById(id);
 function status(t){el('status').textContent=t;}
 function validarChave(texto){const v=String(texto||'').replace(/\D/g,'');return v.length===44?v:null;}
-async function parar(){if(!leitor)return;try{if(iniciado)await leitor.stop();}catch(e){}try{leitor.clear();}catch(e){}leitor=null;iniciado=false;el('iniciar').disabled=false;el('parar').disabled=true;}
+async function parar(){
+  if(leitor){
+    try{if(iniciado)await leitor.stop();}catch(e){}
+    try{leitor.clear();}catch(e){}
+  }
+  leitor=null;iniciado=false;
+  el('iniciar').disabled=false;el('parar').disabled=true;
+  el('visor').classList.remove('ativo');
+  try{if(document.fullscreenElement)await document.exitFullscreen();}catch(e){}
+}
+async function tentarTelaCheia(){
+  if(!el('visor').requestFullscreen || document.fullscreenElement)return;
+  try{await el('visor').requestFullscreen({navigationUI:'hide'});}catch(e){}
+}
 async function achou(texto){if(lendo)return;const chave=validarChave(texto);if(!chave)return; lendo=true;el('chave').textContent=chave;el('resultado').style.display='block';el('manual').value=chave;status('Chave da NF-e identificada. Toque em Copiar chave.');await parar();lendo=false;}
-el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:10,qrbox:{width:290,height:140},aspectRatio:1.7778},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'user'},{fps:10,qrbox:{width:290,height:140}},achou,()=>{});}iniciado=true;el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
+el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:15,aspectRatio:1.7778},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'user'},{fps:15,aspectRatio:1.7778},achou,()=>{});}iniciado=true;el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
 el('parar').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
+el('fecharVisor').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
+el('telaCheia').addEventListener('click',tentarTelaCheia);
+document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&iniciado){/* mantém visor expandido mesmo sem API fullscreen */}});
+
 el('validar').addEventListener('click',()=>{const v=validarChave(el('manual').value);if(!v){status('A chave deve conter exatamente 44 dígitos.');return;}achou(v);});
 el('copiar').addEventListener('click',async()=>{const v=el('chave').textContent;try{await navigator.clipboard.writeText(v);status('Chave copiada. Volte ao aplicativo de cavacos e cole no campo da NF-e.');}catch(e){status('Não foi possível copiar automaticamente. Selecione os 44 dígitos exibidos e copie manualmente.');}});
 document.addEventListener('visibilitychange',()=>{if(document.hidden&&iniciado)parar();});
