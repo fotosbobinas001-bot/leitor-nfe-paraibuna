@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Paraibuna | OCR Umidade</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+</head><body><p>Serviço OCR Paraibuna. Abra pelo aplicativo.</p>
+<script>
+'use strict';
+const ORIGEM_APP=/^https:\/\/(?:script\.google\.com|script\.googleusercontent\.com)(?::443)?$/;
+let worker=null,ocupado=false;
+async function obterWorker(){
+  if(!worker){
+    worker=await Tesseract.createWorker('eng',1);
+    await worker.setParameters({tessedit_char_whitelist:'0123456789,.%',tessedit_pageseg_mode:'7',preserve_interword_spaces:'0'});
+  }
+  return worker;
+}
+function valorDoTexto(txt){
+  const limpo=String(txt||'').replace(/\s+/g,'').replace(/[oO]/g,'0');
+  const m=limpo.match(/(?:\d{1,2}[.,]\d{1,2}|\d{1,2})(?=%|$)/);
+  if(!m)return null;
+  const n=Number(m[0].replace(',','.'));
+  return Number.isFinite(n)&&n>=0&&n<=60?n:null;
+}
+function preparar(img,modo){
+  const w=1200,h=450;
+  const c=document.createElement('canvas');c.width=w;c.height=h;
+  const ctx=c.getContext('2d',{willReadFrequently:true});
+  ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);
+  // Prioriza o visor central, preservando toda a altura central da fotografia.
+  const sx=img.naturalWidth*.12,sy=img.naturalHeight*.20,sw=img.naturalWidth*.76,sh=img.naturalHeight*.60;
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,w,h);
+  const pixels=ctx.getImageData(0,0,w,h),d=pixels.data;
+  for(let i=0;i<d.length;i+=4){
+    const cinza=.299*d[i]+.587*d[i+1]+.114*d[i+2];
+    let v=modo===0?cinza:modo===1?(cinza>125?255:0):(cinza<130?255:0);
+    if(modo===0)v=Math.max(0,Math.min(255,(v-128)*1.65+128));
+    d[i]=d[i+1]=d[i+2]=v;
+  }
+  ctx.putImageData(pixels,0,0);
+  return c;
+}
+function carregar(src){return new Promise((ok,fail)=>{
+ const img=new Image();img.onload=()=>ok(img);img.onerror=fail;img.src=src;
+});}
+async function reconhecer(src){
+  const img=await carregar(src), w=await obterWorker();
+  const resultados=[];
+  for(let modo=0;modo<3;modo++){
+    const {data}=await w.recognize(preparar(img,modo));
+    const valor=valorDoTexto(data.text);
+    if(valor!==null)resultados.push({valor,confianca:data.confidence||0});
+  }
+  // Requer concordância de pelo menos duas interpretações, tolerância 0,1%.
+  for(let i=0;i<resultados.length;i++)for(let j=i+1;j<resultados.length;j++){
+    if(Math.abs(resultados[i].valor-resultados[j].valor)<=.11){
+      return Math.round((resultados[i].valor+resultados[j].valor)*5)/10;
+    }
+  }
+  return null;
+}
+window.addEventListener('message',async ev=>{
+  if(!ORIGEM_APP.test(ev.origin))return;
+  const d=ev.data;
+  if(d?.tipo!=='PARAIBUNA_OCR_PEDIDO'||!Number.isSafeInteger(d.id)||typeof d.imagem!=='string'||!d.imagem.startsWith('data:image/'))return;
+  if(ocupado)return;
+  ocupado=true;
+  let valor=null;
+  try{valor=await reconhecer(d.imagem);}catch(e){console.error('OCR',e);}
+  finally{ocupado=false;}
+  ev.source?.postMessage({tipo:'PARAIBUNA_OCR_RESPOSTA',id:d.id,valor},ev.origin);
+});
+</script></body></html>
