@@ -13,7 +13,18 @@
 #barraVisor button{font-size:14px;padding:10px 12px;margin:0}
 #reader{width:100%;max-width:none!important;flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 #reader video{width:100%!important;max-width:100%!important;max-height:100%!important;object-fit:contain!important}
-#reader>div{max-width:100%!important}
+#reader>div{width:100%!important;height:100%!important;max-width:none!important;max-height:none!important}
+#reader video{height:100%!important;object-fit:cover!important}
+#reader__scan_region{width:100%!important;height:100%!important;min-height:0!important}
+#reader__scan_region video{width:100%!important;height:100%!important;object-fit:cover!important}
+#reader__dashboard{display:none!important}
+#barraVisor{position:relative;z-index:3}
+#controlesCamera{display:flex;align-items:center;gap:6px;flex-wrap:wrap;justify-content:center;background:#112f45;padding:5px;flex-shrink:0}
+#controlesCamera button{font-size:13px;padding:8px 10px;margin:0}
+#zoomCamera{width:125px;accent-color:#35d4a0}
+#zoomWrap{display:none;align-items:center;gap:5px;font-size:12px}
+#infoCamera{font-size:11px;color:#d9e8f2;text-align:center;padding:3px;background:#112f45}
+@media(orientation:landscape){#dicaVisor{display:none}#barraVisor strong{font-size:12px}#controlesCamera{padding:2px}#controlesCamera button{padding:5px 9px}}
 #dicaVisor{padding:8px 12px;background:#112f45;text-align:center;font-size:14px;flex-shrink:0}
 #status{overflow-wrap:anywhere}
 @media(orientation:landscape){
@@ -33,7 +44,13 @@
     <button id="telaCheia" class="secondary" type="button">⛶ Tela cheia</button>
     <button id="fecharVisor" type="button">Fechar</button>
   </div></div>
+  <div id="controlesCamera">
+    <button id="flashCamera" type="button" disabled>🔦 Ligar flash</button>
+    <button id="focoCamera" type="button" disabled>◎ Ajustar foco</button>
+    <span id="zoomWrap"><label for="zoomCamera">Zoom</label><input type="range" id="zoomCamera" min="1" max="4" step="0.1" value="1"><span id="zoomValor">1×</span></span>
+  </div>
   <div id="reader"></div>
+  <div id="infoCamera" aria-live="polite">Flash, zoom e foco dependem dos recursos da câmera do celular.</div>
   <div id="dicaVisor">Gire o celular na horizontal e aproxime o código de barras até ocupar a largura da imagem.</div>
 </div><p id="status" role="status">Toque em Abrir câmera para iniciar.</p>
 <div id="resultado"><strong>Chave identificada (44 dígitos):</strong><p id="chave"></p><button id="copiar">Copiar chave</button></div>
@@ -42,7 +59,7 @@
 </section></main>
 <script>
 'use strict';
-let leitor=null, iniciado=false, lendo=false;
+let leitor=null, iniciado=false, lendo=false, flashLigado=false, zoomTimer=null;
 const el=id=>document.getElementById(id);
 function status(t){el('status').textContent=t;}
 function validarChave(texto){const v=String(texto||'').replace(/\D/g,'');return v.length===44?v:null;}
@@ -51,7 +68,9 @@ async function parar(){
     try{if(iniciado)await leitor.stop();}catch(e){}
     try{leitor.clear();}catch(e){}
   }
-  leitor=null;iniciado=false;
+  leitor=null;iniciado=false;flashLigado=false;
+  el('flashCamera').disabled=true;el('flashCamera').textContent='🔦 Ligar flash';
+  el('focoCamera').disabled=true;el('zoomWrap').style.display='none';
   el('iniciar').disabled=false;el('parar').disabled=true;
   el('visor').classList.remove('ativo');
   try{if(document.fullscreenElement)await document.exitFullscreen();}catch(e){}
@@ -60,8 +79,60 @@ async function tentarTelaCheia(){
   if(!el('visor').requestFullscreen || document.fullscreenElement)return;
   try{await el('visor').requestFullscreen({navigationUI:'hide'});}catch(e){}
 }
+
+function recursosCamera(){
+  try{return leitor.getRunningTrackCapabilities()||{};}catch(e){return {};}
+}
+function informarCamera(msg){el('infoCamera').textContent=msg;}
+function configurarRecursos(){
+  const caps=recursosCamera();
+  const torch=!!caps.torch;
+  el('flashCamera').disabled=!torch;
+  el('flashCamera').title=torch?'Acender ou apagar a lanterna':'Flash não disponível nesta câmera/navegador';
+  el('focoCamera').disabled=!Array.isArray(caps.focusMode)||!caps.focusMode.length;
+  if(caps.zoom && Number.isFinite(caps.zoom.min) && Number.isFinite(caps.zoom.max) && caps.zoom.max>caps.zoom.min){
+    const z=el('zoomCamera');
+    z.min=caps.zoom.min;z.max=caps.zoom.max;z.step=caps.zoom.step||0.1;
+    z.value=Math.max(caps.zoom.min,Math.min(caps.zoom.max,1.5));
+    el('zoomWrap').style.display='flex';
+    aplicarZoom();
+  }else{el('zoomWrap').style.display='none';}
+  informarCamera((torch?'Flash disponível':'Flash indisponível')+' • '+(caps.zoom?'Zoom disponível':'Zoom indisponível')+' • '+(caps.focusMode?'Foco ajustável':'Foco automático do celular'));
+}
+async function aplicarZoom(){
+  if(!leitor||!iniciado)return;
+  const valor=Number(el('zoomCamera').value);
+  el('zoomValor').textContent=valor.toFixed(1)+'×';
+  try{await leitor.applyVideoConstraints({advanced:[{zoom:valor}]});}
+  catch(e){informarCamera('Este aparelho não permitiu ajustar o zoom.');}
+}
+el('zoomCamera').addEventListener('input',()=>{
+  el('zoomValor').textContent=Number(el('zoomCamera').value).toFixed(1)+'×';
+  clearTimeout(zoomTimer);
+  zoomTimer=setTimeout(aplicarZoom,130);
+});
+el('flashCamera').addEventListener('click',async()=>{
+  if(!leitor||!iniciado)return;
+  try{
+    const novo=!flashLigado;
+    await leitor.applyVideoConstraints({advanced:[{torch:novo}]});
+    flashLigado=novo;
+    el('flashCamera').textContent=novo?'🔦 Apagar flash':'🔦 Ligar flash';
+  }catch(e){informarCamera('Não foi possível ligar o flash nesta câmera.');}
+});
+el('focoCamera').addEventListener('click',async()=>{
+  if(!leitor||!iniciado)return;
+  const modos=recursosCamera().focusMode||[];
+  try{
+    if(modos.includes('continuous')) await leitor.applyVideoConstraints({advanced:[{focusMode:'continuous'}]});
+    else if(modos.includes('single-shot')) await leitor.applyVideoConstraints({advanced:[{focusMode:'single-shot'}]});
+    else throw new Error('Foco não ajustável');
+    informarCamera('Solicitado ajuste de foco. Mantenha o celular estável por um instante.');
+  }catch(e){informarCamera('Foco controlado automaticamente pelo celular. Afaste um pouco a câmera da DANFE.');}
+});
+
 async function achou(texto){if(lendo)return;const chave=validarChave(texto);if(!chave)return; lendo=true;el('chave').textContent=chave;el('resultado').style.display='block';el('manual').value=chave;status('Chave da NF-e identificada. Toque em Copiar chave.');await parar();lendo=false;}
-el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:15,aspectRatio:1.7778},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'user'},{fps:15,aspectRatio:1.7778},achou,()=>{});}iniciado=true;el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
+el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:15,aspectRatio:window.matchMedia('(orientation: landscape)').matches?1.7778:1.3333},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'user'},{fps:15,aspectRatio:window.matchMedia('(orientation: landscape)').matches?1.7778:1.3333},achou,()=>{});}iniciado=true;configurarRecursos();el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
 el('parar').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
 el('fecharVisor').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
 el('telaCheia').addEventListener('click',tentarTelaCheia);
