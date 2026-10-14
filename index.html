@@ -41,7 +41,7 @@
 <button id="iniciar">Abrir câmera</button><button id="parar" class="secondary" disabled>Parar câmera</button>
 <div id="visor">
   <div id="barraVisor"><strong>Leitor NF-e • visor ampliado</strong><div>
-    <button id="telaCheia" class="secondary" type="button">⛶ Tela cheia</button>
+    <button id="reiniciarCamera" class="secondary" type="button" style="display:none">Tentar novamente</button><button id="telaCheia" class="secondary" type="button">⛶ Tela cheia</button>
     <button id="fecharVisor" type="button">Fechar</button>
   </div></div>
   <div id="controlesCamera">
@@ -50,6 +50,7 @@
     <span id="zoomWrap"><label for="zoomCamera">Zoom</label><input type="range" id="zoomCamera" min="1" max="4" step="0.1" value="1"><span id="zoomValor">1×</span></span>
   </div>
   <div id="reader"></div>
+  <div id="erroCamera" style="display:none;background:#4b2020;color:#fff;padding:8px;text-align:center"></div>
   <div id="infoCamera" aria-live="polite">Flash, zoom e foco dependem dos recursos da câmera do celular.</div>
   <div id="dicaVisor">Gire o celular na horizontal. Enquadre TODO o código com margem nas duas extremidades; mantenha 15–25 cm de distância e aguarde o foco.</div>
 </div><p id="status" role="status">Toque em Abrir câmera para iniciar.</p>
@@ -156,7 +157,16 @@ async function achou(texto){
   status(enviado ? 'Chave enviada ao aplicativo de cavacos. Se não aparecer no formulário, toque em Copiar chave.' : 'Chave identificada. Toque em Copiar chave.');
   lendo=false;
 }
-el('iniciar').addEventListener('click',async()=>{if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:12,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},disableFlip:true},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'environment'},{fps:10,disableFlip:true},achou,()=>{});}iniciado=true;configurarRecursos();el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');}catch(e){status('Não foi possível abrir a câmera: '+(e?.message||e)+'. Confira as permissões do Chrome.');await parar();}});
+async function iniciarCamera(){if(iniciado)return;if(!window.isSecureContext){status('Abra este leitor pelo endereço HTTPS do GitHub Pages.');return;}if(!navigator.mediaDevices?.getUserMedia){status('Este navegador não disponibiliza acesso à câmera.');return;}if(typeof Html5Qrcode==='undefined'){status('Biblioteca do leitor não carregada. Verifique a conexão com a internet.');return;}el('iniciar').disabled=true;el('visor').classList.add('ativo');if(!modoIntegracao)tentarTelaCheia();status('Solicitando acesso à câmera...');try{leitor=new Html5Qrcode('reader',{formatsToSupport:[Html5QrcodeSupportedFormats.CODE_128,Html5QrcodeSupportedFormats.ITF,Html5QrcodeSupportedFormats.CODE_39],verbose:false});try{await leitor.start({facingMode:'environment'},{fps:12,videoConstraints:{facingMode:'environment',width:{ideal:1920},height:{ideal:1080},frameRate:{ideal:30}},disableFlip:true},achou,()=>{});}catch(primeiro){await leitor.start({facingMode:'environment'},{fps:10,disableFlip:true},achou,()=>{});}iniciado=true;configurarRecursos();el('parar').disabled=false;status('Câmera ativa. Aponte para o código de barras da DANFE.');el('erroCamera').style.display='none';el('reiniciarCamera').style.display='none';}catch(e){const aviso='Não foi possível abrir a câmera: '+(e?.message||e)+'. Toque em Tentar novamente e permita a câmera no Chrome.';status(aviso);await parar();el('visor').classList.add('ativo');el('erroCamera').textContent=aviso;el('erroCamera').style.display='block';el('reiniciarCamera').style.display='inline-block';}}
+el('iniciar').addEventListener('click',iniciarCamera);
+el('reiniciarCamera').addEventListener('click',iniciarCamera);
+if(modoIntegracao){
+  el('visor').classList.add('ativo');
+  el('iniciar').style.display='none';
+  el('reiniciarCamera').style.display='inline-block';
+  // getUserMedia pode ser iniciado no carregamento, mas o Chrome pode exigir gesto do usuário.
+  window.addEventListener('load',()=>{iniciarCamera();},{once:true});
+}
 el('parar').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
 el('fecharVisor').addEventListener('click',async()=>{await parar();status('Câmera parada.');});
 el('telaCheia').addEventListener('click',tentarTelaCheia);
