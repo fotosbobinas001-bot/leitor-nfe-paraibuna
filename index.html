@@ -135,9 +135,11 @@ const parametrosIntegracao = new URLSearchParams(location.search);
 const tokenIntegracao = parametrosIntegracao.get('token') || '';
 const modoIntegracao = parametrosIntegracao.get('integracao') === '1';
 function enviarParaAplicativo(chave) {
-  if (!modoIntegracao || !tokenIntegracao || !window.opener) return false;
+  if (!modoIntegracao || !tokenIntegracao) return false;
   try {
-    window.opener.postMessage({tipo:'PARAIBUNA_NFE_LIDA',token:tokenIntegracao,chave:chave}, '*');
+    const destino=(window.parent && window.parent!==window)?window.parent:window.opener;
+    if(!destino)return false;
+    destino.postMessage({tipo:'PARAIBUNA_NFE_LIDA',token:tokenIntegracao,chave:chave}, '*');
     return true;
   } catch(e) { return false; }
 }
