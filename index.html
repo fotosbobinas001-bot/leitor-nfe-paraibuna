@@ -136,15 +136,37 @@ el('focoCamera').addEventListener('click',async()=>{
 const parametrosIntegracao = new URLSearchParams(location.search);
 const tokenIntegracao = parametrosIntegracao.get('token') || '';
 const modoIntegracao = parametrosIntegracao.get('integracao') === '1';
+// Integração confiável: aguarda confirmação do aplicativo antes de fechar o leitor.
+let chaveAguardandoConfirmacao = '';
+let integracaoConfirmada = false;
+let repetidorEntrega = null;
 function enviarParaAplicativo(chave) {
   if (!modoIntegracao || !tokenIntegracao) return false;
-  try {
-    const destino=(window.parent && window.parent!==window)?window.parent:window.opener;
-    if(!destino)return false;
-    destino.postMessage({tipo:'PARAIBUNA_NFE_LIDA',token:tokenIntegracao,chave:chave}, '*');
-    return true;
-  } catch(e) { return false; }
+  const destino=(window.parent && window.parent!==window)?window.parent:window.opener;
+  if(!destino || destino.closed) return false;
+  chaveAguardandoConfirmacao=chave;
+  integracaoConfirmada=false;
+  const transmitir=()=>{
+    if(integracaoConfirmada)return;
+    try{destino.postMessage({tipo:'PARAIBUNA_NFE_LIDA',token:tokenIntegracao,chave},'*');}catch(e){}
+  };
+  transmitir();
+  if(repetidorEntrega)clearInterval(repetidorEntrega);
+  let tentativas=0;
+  repetidorEntrega=setInterval(()=>{
+    if(integracaoConfirmada || ++tentativas>=12){clearInterval(repetidorEntrega);repetidorEntrega=null;return;}
+    transmitir();
+  },500);
+  return true;
 }
+window.addEventListener('message',event=>{
+  const d=event.data;
+  if(!d || d.tipo!=='PARAIBUNA_NFE_RECEBIDA' || d.token!==tokenIntegracao || d.chave!==chaveAguardandoConfirmacao)return;
+  integracaoConfirmada=true;
+  if(repetidorEntrega){clearInterval(repetidorEntrega);repetidorEntrega=null;}
+  status('Chave recebida pelo aplicativo. Retornando...');
+  setTimeout(voltarAoAplicativo,120);
+});
 async function voltarAoAplicativo(){
   await parar();
   if(!modoIntegracao){status('Câmera fechada.');return;}
@@ -171,7 +193,7 @@ async function achou(texto){
   const enviado=enviarParaAplicativo(chave);
   status(enviado ? 'Chave enviada ao aplicativo de cavacos.' : 'Chave identificada. Toque em Copiar chave.');
   lendo=false;
-  if(enviado){setTimeout(()=>voltarAoAplicativo(),250);}
+  if(enviado){status('Chave identificada. Aguardando confirmação de recebimento pelo aplicativo...');}
 
 }
 
