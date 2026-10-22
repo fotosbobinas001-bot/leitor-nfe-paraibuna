@@ -154,7 +154,7 @@ function enviarParaAplicativo(chave) {
   if(repetidorEntrega)clearInterval(repetidorEntrega);
   let tentativas=0;
   repetidorEntrega=setInterval(()=>{
-    if(integracaoConfirmada || ++tentativas>=12){clearInterval(repetidorEntrega);repetidorEntrega=null;return;}
+    if(integracaoConfirmada || ++tentativas>=20){clearInterval(repetidorEntrega);repetidorEntrega=null;if(!integracaoConfirmada)status('Não foi possível confirmar o retorno automático. Volte ao aplicativo e, se necessário, copie a chave.');return;}
     transmitir();
   },500);
   return true;
@@ -165,12 +165,14 @@ window.addEventListener('message',event=>{
   integracaoConfirmada=true;
   if(repetidorEntrega){clearInterval(repetidorEntrega);repetidorEntrega=null;}
   status('Chave recebida pelo aplicativo. Retornando...');
-  setTimeout(voltarAoAplicativo,120);
+  setTimeout(voltarAoAplicativo,750);
 });
 async function voltarAoAplicativo(){
   await parar();
   if(!modoIntegracao){status('Câmera fechada.');return;}
   try{if(window.opener && !window.opener.closed){window.opener.focus();}}catch(e){}
+  // Aguarda o navegador ativar a aba do aplicativo antes de fechar.
+  await new Promise(resolve=>setTimeout(resolve,450));
   try{window.close();}catch(e){}
   // Navegadores podem impedir fechar abas que não foram abertas por script.
   setTimeout(()=>{
